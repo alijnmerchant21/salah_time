@@ -4,7 +4,6 @@ import os
 import requests
 from zoneinfo import ZoneInfo
 
-# Frankfurt fixed
 LAT = 50.1109
 LON = 8.6821
 TZ = "Europe/Berlin"
@@ -14,8 +13,6 @@ ISHA_ANGLE = 13.23
 SUN_ALT = -1.4
 ASR_FACTOR_START = 0.356
 ASR_FACTOR_END = 2.299
-NISF_START_RATIO = 0.552
-NISF_END_RATIO = 0.641333
 
 WEBHOOK_URL = os.environ["TRMNL_WEBHOOK"]
 
@@ -45,10 +42,12 @@ def hour_angle(lat_rad, decl_rad, alt_deg):
     cosH = max(-1, min(1, cosH))
     return math.degrees(math.acos(cosH))
 
-def compute_today():
+def compute_times():
 
     tz = ZoneInfo(TZ)
-    today = dt.datetime.now(tz).date()
+    now = dt.datetime.now(tz)
+    today = now.date()
+
     midnight = dt.datetime(today.year, today.month, today.day, 0, 0, tzinfo=tz)
 
     doy = day_of_year(today)
@@ -68,6 +67,7 @@ def compute_today():
 
     HF = hour_angle(lat_rad, decl, -FAJR_ANGLE)
     HI = hour_angle(lat_rad, decl, -ISHA_ANGLE)
+
     fajr = solar_noon - HF * 4
     isha = solar_noon + HI * 4
 
@@ -81,24 +81,38 @@ def compute_today():
     zuhr_end = solar_noon + HA_start * 4
     asr_end = solar_noon + HA_end * 4
 
-    def fmt(minutes):
-        minutes %= 1440
-        return (midnight + dt.timedelta(minutes=minutes)).strftime("%H:%M")
+    def to_dt(minutes):
+        return midnight + dt.timedelta(minutes=minutes % 1440)
+
+    prayers = [
+        ("Sihori", to_dt(fajr)),
+        ("Sunrise", to_dt(sunrise)),
+        ("Zuhr End", to_dt(zuhr_end)),
+        ("Asr End", to_dt(asr_end)),
+        ("Maghrib", to_dt(maghrib)),
+        ("Isha", to_dt(isha)),
+    ]
+
+    # find next 2
+    upcoming = [p for p in prayers if p[1] > now]
+
+    if len(upcoming) < 2:
+        # include tomorrow's fajr if needed
+        tomorrow = midnight + dt.timedelta(days=1)
+        upcoming.append(("Sihori", tomorrow + dt.timedelta(minutes=fajr)))
+
+    next_two = upcoming[:2]
 
     return {
         "date": str(today),
-        "fajr": fmt(fajr),
-        "sunrise": fmt(sunrise),
-        "zawal": fmt(solar_noon),
-        "zuhr_end": fmt(zuhr_end),
-        "asr_end": fmt(asr_end),
-        "maghrib": fmt(maghrib),
-        "isha": fmt(isha),
+        "next1_name": next_two[0][0],
+        "next1_time": next_two[0][1].strftime("%H:%M"),
+        "next2_name": next_two[1][0],
+        "next2_time": next_two[1][1].strftime("%H:%M"),
     }
 
-def push_to_trmnl(data):
+def push(data):
     requests.post(WEBHOOK_URL, json={"merge_variables": data})
 
 if __name__ == "__main__":
-    data = compute_today()
-    push_to_trmnl(data)
+    push(compute_times())
