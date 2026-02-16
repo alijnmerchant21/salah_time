@@ -21,7 +21,7 @@ NISF_END_RATIO = 0.641333
 WEBHOOK_URL = os.environ["TRMNL_WEBHOOK"]
 
 # -------------------------------------------------
-# RAMADAN ANCHOR (Adjust if needed)
+# RAMADAN ANCHOR
 # -------------------------------------------------
 RAMADAN_1_GREGORIAN = dt.date(2026, 2, 17)
 RAMADAN_1_HIJRI_YEAR = 1447
@@ -40,24 +40,19 @@ def rad2deg(x): return x * 180 / math.pi
 def day_of_year(date): return int(date.strftime("%j"))
 
 def solar_declination(gamma):
-    return (
-        0.006918
-        - 0.399912 * math.cos(gamma)
-        + 0.070257 * math.sin(gamma)
-        - 0.006758 * math.cos(2 * gamma)
-        + 0.000907 * math.sin(2 * gamma)
-        - 0.002697 * math.cos(3 * gamma)
-        + 0.00148 * math.sin(3 * gamma)
-    )
+    return (0.006918 - 0.399912 * math.cos(gamma)
+            + 0.070257 * math.sin(gamma)
+            - 0.006758 * math.cos(2 * gamma)
+            + 0.000907 * math.sin(2 * gamma)
+            - 0.002697 * math.cos(3 * gamma)
+            + 0.00148 * math.sin(3 * gamma))
 
 def equation_of_time(gamma):
-    return 229.18 * (
-        0.000075
-        + 0.001868 * math.cos(gamma)
-        - 0.032077 * math.sin(gamma)
-        - 0.014615 * math.cos(2 * gamma)
-        - 0.040849 * math.sin(2 * gamma)
-    )
+    return 229.18 * (0.000075
+                     + 0.001868 * math.cos(gamma)
+                     - 0.032077 * math.sin(gamma)
+                     - 0.014615 * math.cos(2 * gamma)
+                     - 0.040849 * math.sin(2 * gamma))
 
 def hour_angle(lat_rad, decl_rad, alt_deg):
     h = deg2rad(alt_deg)
@@ -68,19 +63,17 @@ def hour_angle(lat_rad, decl_rad, alt_deg):
     return math.degrees(math.acos(cosH))
 
 # -------------------------------------------------
-# Hijri Calculation Based On Ramadan Anchor
+# Hijri Conversion
 # -------------------------------------------------
 def gregorian_to_hijri(date):
-
     delta_days = (date - RAMADAN_1_GREGORIAN).days
-
     hijri_day = 1 + delta_days
-    hijri_month = 9  # Ramadan
+    hijri_month = 9
     hijri_year = RAMADAN_1_HIJRI_YEAR
 
     if hijri_day <= 0:
-        hijri_month = 8  # Sha'ban
-        hijri_day = 30 + hijri_day  # assume 30-day month
+        hijri_month = 8
+        hijri_day = 30 + hijri_day
 
     return hijri_day, hijri_month, hijri_year
 
@@ -135,7 +128,6 @@ def compute_times():
     fajr_next_min = solar_noon_next - HF_next * 4
 
     night_length = fajr_next_min - maghrib_min
-
     nisf_start_min = maghrib_min + night_length * NISF_START_RATIO
     nisf_end_min = maghrib_min + night_length * NISF_END_RATIO
 
@@ -175,7 +167,7 @@ def compute_times():
     minutes = (total_seconds % 3600) // 60
     countdown = f"{hours:02d}:{minutes:02d}"
 
-    # Progress bar calculation
+    # Progress
     current_start = current_event[1]
     current_end = next_event[1]
     window = (current_end - current_start).total_seconds()
@@ -186,6 +178,14 @@ def compute_times():
     h_day, h_month, h_year = gregorian_to_hijri(today)
     hijri_str = f"{h_day} {HIJRI_MONTHS[h_month-1]} {h_year} AH"
 
+    # Fasting duration (Sihori → Maghrib)
+    fasting_seconds = int(maghrib_min - fajr_min) * 60
+    fasting_hours = fasting_seconds // 3600
+    fasting_minutes = (fasting_seconds % 3600) // 60
+    fasting_duration = f"{fasting_hours}h {fasting_minutes}m"
+
+    is_ramadan = (h_month == 9)
+
     return {
         "date": str(today),
         "hijri": hijri_str,
@@ -193,12 +193,11 @@ def compute_times():
         "next_name": next_event[0],
         "next_time": next_event[1].strftime("%H:%M"),
         "countdown": countdown,
-        "progress": progress
+        "progress": progress,
+        "fasting_duration": fasting_duration if is_ramadan else "",
+        "is_ramadan": is_ramadan
     }
 
-# -------------------------------------------------
-# Push to TRMNL
-# -------------------------------------------------
 def push(data):
     requests.post(
         WEBHOOK_URL,
