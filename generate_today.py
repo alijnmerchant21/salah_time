@@ -133,19 +133,51 @@ def compute_times():
     is_ramadan = (h_month == 9)
 
     if is_ramadan:
+        fasting_duration_td = maghrib_time - sihori_time
+        fasting_mins = int(fasting_duration_td.total_seconds() / 60)
+        fasting_duration = f"{fasting_mins // 60}h {fasting_mins % 60}m"
 
         if now < maghrib_time:
-            phase = "🌙 Roza in Progress"
+            status_line = "Roza in Progress"
             next_event_name = "Maghrib"
             next_event_time = maghrib_time
             total_window = (maghrib_time - sihori_time).total_seconds()
             elapsed = (now - sihori_time).total_seconds()
+            # Fun messages: hours/minutes to iftar
+            delta = maghrib_time - now
+            secs = max(0, int(delta.total_seconds()))
+            hrs = secs // 3600
+            mins = (secs % 3600) // 60
+            if hrs >= 5:
+                fun_message = f"Hang your belly tight – {hrs} hours to iftar! 💪"
+            elif hrs >= 2:
+                fun_message = f"The finish line is in sight – {hrs}h {mins}m to iftar"
+            elif hrs >= 1:
+                fun_message = f"Last stretch – {hrs}h {mins}m to iftar 🏁"
+            elif mins >= 15:
+                fun_message = f"Almost there! Iftar in {mins} min 🥤"
+            elif mins >= 5:
+                fun_message = "Get the dates ready! Iftar in " + str(mins) + " min"
+            else:
+                fun_message = "Maghrib any moment now – don’t blink! 🌙"
         else:
-            phase = "🌙 After Iftar"
+            status_line = "You're free to eat now"
             next_event_name = "Sihori"
             next_event_time = sihori_next_time
             total_window = (sihori_next_time - maghrib_time).total_seconds()
             elapsed = (now - maghrib_time).total_seconds()
+            delta = sihori_next_time - now
+            secs = max(0, int(delta.total_seconds()))
+            hrs = secs // 3600
+            mins = (secs % 3600) // 60
+            if hrs >= 4:
+                fun_message = f"Eat, sleep, repeat. Sihori in {hrs} hours 😴"
+            elif hrs >= 2:
+                fun_message = f"Sihori in {hrs}h {mins}m – maybe nap first?"
+            elif hrs >= 1:
+                fun_message = f"Next stop: Sihori in {hrs}h {mins}m"
+            else:
+                fun_message = f"Sihori in {mins} min – rise and shine! ☀️"
 
         progress = int(max(0, min(100, (elapsed / total_window) * 100)))
 
@@ -157,25 +189,31 @@ def compute_times():
 
         ramadan_progress = int((h_day / 30) * 100)
         ramadan_day_text = f"Day {h_day} / 30"
-
+        qaza_in = next_event_time.strftime("%H:%M")
     else:
-        phase = ""
+        status_line = ""
         next_event_name = ""
         next_event_time = now
         countdown = ""
         progress = 0
         ramadan_progress = 0
         ramadan_day_text = ""
+        fasting_duration = ""
+        fun_message = ""
+        qaza_in = ""
 
     return {
         "hijri": hijri_str,
-        "phase": phase,
+        "status_line": status_line,
         "next_name": next_event_name,
-        "next_time": next_event_time.strftime("%H:%M"),
+        "next_time": next_event_time.strftime("%H:%M") if is_ramadan else "",
+        "qaza_in": qaza_in,
         "countdown": countdown,
         "progress": progress,
         "ramadan_progress": ramadan_progress,
-        "ramadan_day_text": ramadan_day_text
+        "ramadan_day_text": ramadan_day_text,
+        "fasting_duration": fasting_duration,
+        "fun_message": fun_message,
     }
 
 # -------------------------------------------------
