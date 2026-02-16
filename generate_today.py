@@ -94,14 +94,23 @@ def compute_times():
     ]
 
     # find next 2
-    upcoming = [p for p in prayers if p[1] > now]
+upcoming = [p for p in prayers if p[1] > now]
 
-    if len(upcoming) < 2:
-        # include tomorrow's fajr if needed
-        tomorrow = midnight + dt.timedelta(days=1)
-        upcoming.append(("Sihori", tomorrow + dt.timedelta(minutes=fajr)))
+# If no more prayers left today, start from tomorrow
+if len(upcoming) == 0:
+    tomorrow = midnight + dt.timedelta(days=1)
+    upcoming = [
+        ("Sihori", tomorrow + dt.timedelta(minutes=fajr)),
+        ("Sunrise", tomorrow + dt.timedelta(minutes=sunrise)),
+    ]
 
-    next_two = upcoming[:2]
+# If only one prayer left today, add tomorrow's fajr
+elif len(upcoming) == 1:
+    tomorrow = midnight + dt.timedelta(days=1)
+    upcoming.append(("Sihori", tomorrow + dt.timedelta(minutes=fajr)))
+
+next_two = upcoming[:2]
+
 
     return {
         "date": str(today),
