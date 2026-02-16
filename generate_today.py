@@ -9,14 +9,10 @@ from zoneinfo import ZoneInfo
 # -------------------------------------------------
 LAT = 50.1109
 LON = 8.6821
-TZ = "Europe/Berlin"
+TZ = ZoneInfo("Europe/Berlin")
 
 FAJR_ANGLE = 13.23
 SUN_ALT = -1.4
-ASR_FACTOR_START = 0.356
-ASR_FACTOR_END = 2.299
-NISF_START_RATIO = 0.552
-NISF_END_RATIO = 0.641333
 
 WEBHOOK_URL = os.environ["TRMNL_WEBHOOK"]
 
@@ -40,19 +36,24 @@ def rad2deg(x): return x * 180 / math.pi
 def day_of_year(date): return int(date.strftime("%j"))
 
 def solar_declination(gamma):
-    return (0.006918 - 0.399912 * math.cos(gamma)
-            + 0.070257 * math.sin(gamma)
-            - 0.006758 * math.cos(2 * gamma)
-            + 0.000907 * math.sin(2 * gamma)
-            - 0.002697 * math.cos(3 * gamma)
-            + 0.00148 * math.sin(3 * gamma))
+    return (
+        0.006918
+        - 0.399912 * math.cos(gamma)
+        + 0.070257 * math.sin(gamma)
+        - 0.006758 * math.cos(2 * gamma)
+        + 0.000907 * math.sin(2 * gamma)
+        - 0.002697 * math.cos(3 * gamma)
+        + 0.00148 * math.sin(3 * gamma)
+    )
 
 def equation_of_time(gamma):
-    return 229.18 * (0.000075
-                     + 0.001868 * math.cos(gamma)
-                     - 0.032077 * math.sin(gamma)
-                     - 0.014615 * math.cos(2 * gamma)
-                     - 0.040849 * math.sin(2 * gamma))
+    return 229.18 * (
+        0.000075
+        + 0.001868 * math.cos(gamma)
+        - 0.032077 * math.sin(gamma)
+        - 0.014615 * math.cos(2 * gamma)
+        - 0.040849 * math.sin(2 * gamma)
+    )
 
 def hour_angle(lat_rad, decl_rad, alt_deg):
     h = deg2rad(alt_deg)
@@ -63,10 +64,12 @@ def hour_angle(lat_rad, decl_rad, alt_deg):
     return math.degrees(math.acos(cosH))
 
 # -------------------------------------------------
-# Hijri Conversion
+# Hijri Based On Ramadan Anchor
 # -------------------------------------------------
 def gregorian_to_hijri(date):
+
     delta_days = (date - RAMADAN_1_GREGORIAN).days
+
     hijri_day = 1 + delta_days
     hijri_month = 9
     hijri_year = RAMADAN_1_HIJRI_YEAR
@@ -78,14 +81,13 @@ def gregorian_to_hijri(date):
     return hijri_day, hijri_month, hijri_year
 
 # -------------------------------------------------
-# Core Calculation
+# Core Ramadan Logic
 # -------------------------------------------------
 def compute_times():
 
-    tz = ZoneInfo(TZ)
-    now = dt.datetime.now(tz)
+    now = dt.datetime.now(TZ)
     today = now.date()
-    midnight = dt.datetime(today.year, today.month, today.day, 0, 0, tzinfo=tz)
+    midnight = dt.datetime(today.year, today.month, today.day, 0, 0, tzinfo=TZ)
 
     doy = day_of_year(today)
     gamma = 2 * math.pi / 365 * (doy - 1)
@@ -93,7 +95,7 @@ def compute_times():
     decl = solar_declination(gamma)
     lat_rad = deg2rad(LAT)
 
-    noon = dt.datetime(today.year, today.month, today.day, 12, tzinfo=tz)
+    noon = dt.datetime(today.year, today.month, today.day, 12, tzinfo=TZ)
     tz_offset = noon.utcoffset().total_seconds() / 60
     eot = equation_of_time(gamma)
 
@@ -106,17 +108,13 @@ def compute_times():
     HF = hour_angle(lat_rad, decl, -FAJR_ANGLE)
     fajr_min = solar_noon - HF * 4
 
-    noon_shadow = math.tan(abs(lat_rad - decl))
+    def to_dt(minutes):
+        return midnight + dt.timedelta(minutes=minutes % 1440)
 
-    alt_asr_start = rad2deg(math.atan(1 / (ASR_FACTOR_START + noon_shadow)))
-    alt_asr_end = rad2deg(math.atan(1 / (ASR_FACTOR_END + noon_shadow)))
+    sihori_time = to_dt(fajr_min)
+    maghrib_time = to_dt(maghrib_min)
 
-    HA_start = hour_angle(lat_rad, decl, alt_asr_start)
-    HA_end = hour_angle(lat_rad, decl, alt_asr_end)
-
-    zuhr_end_min = solar_noon + HA_start * 4
-    asr_end_min = solar_noon + HA_end * 4
-
+    # Tomorrow Sihori
     tomorrow = today + dt.timedelta(days=1)
     doy_next = day_of_year(tomorrow)
     gamma_next = 2 * math.pi / 365 * (doy_next - 1)
@@ -126,84 +124,71 @@ def compute_times():
     solar_noon_next = 720 - 4 * LON - eot_next + tz_offset + 1440
     HF_next = hour_angle(lat_rad, decl_next, -FAJR_ANGLE)
     fajr_next_min = solar_noon_next - HF_next * 4
-
-    night_length = fajr_next_min - maghrib_min
-    nisf_start_min = maghrib_min + night_length * NISF_START_RATIO
-    nisf_end_min = maghrib_min + night_length * NISF_END_RATIO
-
-    def to_dt(minutes):
-        return midnight + dt.timedelta(minutes=minutes % 1440)
-
-    events = [
-        ("Sihori", to_dt(fajr_min)),
-        ("Sunrise", to_dt(sunrise_min)),
-        ("Zawal", to_dt(solar_noon)),
-        ("Zuhr End", to_dt(zuhr_end_min)),
-        ("Asr End", to_dt(asr_end_min)),
-        ("Maghrib", to_dt(maghrib_min)),
-        ("Nisf Start", to_dt(nisf_start_min)),
-        ("Nisf End", to_dt(nisf_end_min)),
-    ]
-
-    events.sort(key=lambda x: x[1])
-
-    current_event = None
-    next_event = None
-
-    for i in range(len(events)):
-        if now < events[i][1]:
-            next_event = events[i]
-            current_event = events[i - 1] if i > 0 else events[-1]
-            break
-
-    if next_event is None:
-        next_event = events[0]
-        current_event = events[-1]
-
-    # Countdown
-    delta = next_event[1] - now
-    total_seconds = max(0, int(delta.total_seconds()))
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    countdown = f"{hours:02d}:{minutes:02d}"
-
-    # Progress
-    current_start = current_event[1]
-    current_end = next_event[1]
-    window = (current_end - current_start).total_seconds()
-    elapsed = (now - current_start).total_seconds()
-    progress = int(max(0, min(100, (elapsed / window) * 100))) if window > 0 else 0
+    sihori_next_time = midnight + dt.timedelta(minutes=fajr_next_min % 1440)
 
     # Hijri
     h_day, h_month, h_year = gregorian_to_hijri(today)
     hijri_str = f"{h_day} {HIJRI_MONTHS[h_month-1]} {h_year} AH"
 
-    # Fasting duration (Sihori → Maghrib)
-    fasting_seconds = int(maghrib_min - fajr_min) * 60
-    fasting_hours = fasting_seconds // 3600
-    fasting_minutes = (fasting_seconds % 3600) // 60
-    fasting_duration = f"{fasting_hours}h {fasting_minutes}m"
-
     is_ramadan = (h_month == 9)
 
+    if is_ramadan:
+
+        if now < maghrib_time:
+            phase = "🌙 Roza in Progress"
+            next_event_name = "Maghrib"
+            next_event_time = maghrib_time
+            total_window = (maghrib_time - sihori_time).total_seconds()
+            elapsed = (now - sihori_time).total_seconds()
+        else:
+            phase = "🌙 After Iftar"
+            next_event_name = "Sihori"
+            next_event_time = sihori_next_time
+            total_window = (sihori_next_time - maghrib_time).total_seconds()
+            elapsed = (now - maghrib_time).total_seconds()
+
+        progress = int(max(0, min(100, (elapsed / total_window) * 100)))
+
+        delta = next_event_time - now
+        total_seconds = max(0, int(delta.total_seconds()))
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        countdown = f"{hours:02d}:{minutes:02d}"
+
+        ramadan_progress = int((h_day / 30) * 100)
+        ramadan_day_text = f"Day {h_day} / 30"
+
+    else:
+        phase = ""
+        next_event_name = ""
+        next_event_time = now
+        countdown = ""
+        progress = 0
+        ramadan_progress = 0
+        ramadan_day_text = ""
+
     return {
-        "date": str(today),
         "hijri": hijri_str,
-        "current_name": current_event[0],
-        "next_name": next_event[0],
-        "next_time": next_event[1].strftime("%H:%M"),
+        "phase": phase,
+        "next_name": next_event_name,
+        "next_time": next_event_time.strftime("%H:%M"),
         "countdown": countdown,
         "progress": progress,
-        "fasting_duration": fasting_duration if is_ramadan else "",
-        "is_ramadan": is_ramadan
+        "ramadan_progress": ramadan_progress,
+        "ramadan_day_text": ramadan_day_text
     }
 
+# -------------------------------------------------
+# Push To TRMNL
+# -------------------------------------------------
 def push(data):
-    requests.post(
+    r = requests.post(
         WEBHOOK_URL,
         json={"merge_variables": data},
         timeout=10
     )
+    print("Status:", r.status_code)
+    print("Data:", data)
 
 if __name__ == "__main__":
     push(compute_times())
