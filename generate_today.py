@@ -58,24 +58,6 @@ def gregorian_to_hijri(date):
         day = 30 + day
     return day, month, year
 
-def chaotic_message(fasting, percent):
-    if fasting:
-        if percent < 30:
-            return "Belly is calm. Discipline level: monk."
-        elif percent < 60:
-            return "Hydration memories loading..."
-        elif percent < 85:
-            return "Fridge is staring at you."
-        else:
-            return "Final stretch. Kitchen raid denied."
-    else:
-        if percent < 30:
-            return "You may eat. Don't embarrass yourself."
-        elif percent < 60:
-            return "Strategic snack window active."
-        else:
-            return "Night slipping away. Sehori approaching."
-
 def compute_payload():
 
     now = dt.datetime.now(TZ)
@@ -109,6 +91,9 @@ def compute_payload():
     zawal = to_dt(solar_noon)
     maghrib = to_dt(maghrib_min)
 
+    maghrib_end = maghrib + dt.timedelta(minutes=15)
+
+    # Nisf calculation (half night)
     tomorrow = today + dt.timedelta(days=1)
     doy2 = day_of_year(tomorrow)
     gamma2 = 2*math.pi/365*(doy2-1)
@@ -119,39 +104,53 @@ def compute_payload():
     fajr2 = solar_noon2 - HF2*4
     sihori_next = midnight + dt.timedelta(minutes=fajr2%1440) + dt.timedelta(days=1)
 
-    # Hijri
-    h_day,h_month,h_year = gregorian_to_hijri(today)
-    hijri = f"{h_day} {HIJRI_MONTHS[h_month-1]} {h_year} AH"
+    night_length = sihori_next - maghrib
+    nisf_start = maghrib + night_length/2
+    nisf_end = nisf_start + dt.timedelta(hours=2)
+
+    # Define full window structure
+    windows = [
+        ("Pre-Sehori", midnight, sihori),
+        ("Fajr Window", sihori, sunrise),
+        ("Midday Window", sunrise, zawal),
+        ("Zohr Window", zawal, zawal + dt.timedelta(hours=2)),
+        ("Asr Window", zawal + dt.timedelta(hours=2), maghrib),
+        ("Maghrib Window", maghrib, maghrib_end),
+        ("Isha Window", maghrib_end, nisf_start),
+        ("Late Night", nisf_end, sihori_next),
+    ]
+
+    current_name = ""
+    start = None
+    end = None
+
+    for name,s,e in windows:
+        if s <= now < e:
+            current_name = name
+            start = s
+            end = e
+            break
+
+    if not current_name:
+        current_name,start,end = windows[-1]
+
+    percent = int(((now-start).total_seconds() /
+                  (end-start).total_seconds())*100)
+    percent = max(0,min(100,percent))
 
     fasting = sihori <= now < maghrib
 
-    if fasting:
-        percent = int(((now-sihori).total_seconds() /
-                      (maghrib-sihori).total_seconds())*100)
-        percent = max(0,min(100,percent))
-        eat_state = "No Eat"
-        current = "Roza"
-        time1 = f"Sihori ended at {sihori.strftime('%H:%M')}"
-        time2 = f"Maghrib at {maghrib.strftime('%H:%M')}"
-    else:
-        percent = int(((now-maghrib).total_seconds() /
-                      (sihori_next-maghrib).total_seconds())*100)
-        percent = max(0,min(100,percent))
-        eat_state = "Eat"
-        current = "Night"
-        time1 = f"Maghrib at {maghrib.strftime('%H:%M')}"
-        time2 = f"Sihori ends at {sihori_next.strftime('%H:%M')}"
+    eat_state = "No Eat" if fasting else "Eat"
 
-    message = chaotic_message(fasting,percent)
+    h_day,h_month,h_year = gregorian_to_hijri(today)
+    hijri = f"{h_day} {HIJRI_MONTHS[h_month-1]} {h_year} AH"
 
     return {
         "hijri": hijri,
         "eat_state": eat_state,
-        "current": current,
-        "time1": time1,
-        "time2": time2,
-        "percent": percent,
-        "message": message
+        "current": current_name,
+        "ends_at": end.strftime("%H:%M"),
+        "percent": percent
     }
 
 def push(payload):
