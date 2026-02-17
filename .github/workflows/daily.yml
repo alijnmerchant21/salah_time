@@ -2,7 +2,7 @@ name: Daily Prayer Update
 
 on:
   schedule:
-    - cron: "5 * * * *"   # 00:05 UTC daily
+    - cron: "*/15 * * * *"   # 00:05 UTC daily
   workflow_dispatch:
 
 jobs:
