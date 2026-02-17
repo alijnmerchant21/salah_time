@@ -58,22 +58,23 @@ def gregorian_to_hijri(date):
         day = 30 + day
     return day, month, year
 
-def hhmm_from_seconds(sec):
-    sec = max(0,int(sec))
-    return f"{sec//3600:02d}:{(sec%3600)//60:02d}"
-
-def chaotic_message(hours_left, fasting):
+def chaotic_message(fasting, percent):
     if fasting:
-        if hours_left > 5:
-            return "Hang your belly tight. Iftar is a distant dream."
-        elif hours_left > 2:
-            return "Fridge is watching you. Stay strong."
-        elif hours_left > 1:
-            return "Smell food. Do not touch food."
+        if percent < 30:
+            return "Belly is calm. Discipline level: monk."
+        elif percent < 60:
+            return "Hydration memories loading..."
+        elif percent < 85:
+            return "Fridge is staring at you."
         else:
-            return "Final stretch. Do NOT raid the kitchen."
+            return "Final stretch. Kitchen raid denied."
     else:
-        return "You are legally allowed to eat. Use this power wisely."
+        if percent < 30:
+            return "You may eat. Don't embarrass yourself."
+        elif percent < 60:
+            return "Strategic snack window active."
+        else:
+            return "Night slipping away. Sehori approaching."
 
 def compute_payload():
 
@@ -108,7 +109,6 @@ def compute_payload():
     zawal = to_dt(solar_noon)
     maghrib = to_dt(maghrib_min)
 
-    # Tomorrow sihori
     tomorrow = today + dt.timedelta(days=1)
     doy2 = day_of_year(tomorrow)
     gamma2 = 2*math.pi/365*(doy2-1)
@@ -117,55 +117,40 @@ def compute_payload():
     solar_noon2 = 720 - 4*LON - eot2 + tz_offset + 1440
     HF2 = hour_angle(lat_rad,decl2,-FAJR_ANGLE)
     fajr2 = solar_noon2 - HF2*4
-    sihori_tomorrow = midnight + dt.timedelta(minutes=fajr2%1440) + dt.timedelta(days=1)
+    sihori_next = midnight + dt.timedelta(minutes=fajr2%1440) + dt.timedelta(days=1)
 
-    windows = [
-        ("Pre-Sihori", midnight, sihori),
-        ("Sihori", sihori, sunrise),
-        ("Roza", sihori, maghrib),
-        ("After Iftar", maghrib, sihori_tomorrow)
-    ]
-
-    current_name = ""
-    start = None
-    end = None
-
-    for name,s,e in windows:
-        if s <= now < e:
-            current_name = name
-            start = s
-            end = e
-            break
-
-    if not current_name:
-        current_name,start,end = windows[-1]
-
-    fasting = (current_name == "Roza")
-
-    qaza_seconds = (end - now).total_seconds()
-    qaza = hhmm_from_seconds(qaza_seconds)
-
-    progress = int(((now-start).total_seconds() / (end-start).total_seconds())*100)
-    progress = max(0,min(100,progress))
-
-    next_name = ""
-    next_time = end.strftime("%H:%M")
-
+    # Hijri
     h_day,h_month,h_year = gregorian_to_hijri(today)
     hijri = f"{h_day} {HIJRI_MONTHS[h_month-1]} {h_year} AH"
 
-    hours_left = int(qaza_seconds//3600)
-    message = chaotic_message(hours_left,fasting)
+    fasting = sihori <= now < maghrib
 
-    phase = "Roza in Progress" if fasting else "You're free to eat now"
+    if fasting:
+        percent = int(((now-sihori).total_seconds() /
+                      (maghrib-sihori).total_seconds())*100)
+        percent = max(0,min(100,percent))
+        eat_state = "No Eat"
+        current = "Roza"
+        time1 = f"Sihori ended at {sihori.strftime('%H:%M')}"
+        time2 = f"Maghrib at {maghrib.strftime('%H:%M')}"
+    else:
+        percent = int(((now-maghrib).total_seconds() /
+                      (sihori_next-maghrib).total_seconds())*100)
+        percent = max(0,min(100,percent))
+        eat_state = "Eat"
+        current = "Night"
+        time1 = f"Maghrib at {maghrib.strftime('%H:%M')}"
+        time2 = f"Sihori ends at {sihori_next.strftime('%H:%M')}"
+
+    message = chaotic_message(fasting,percent)
 
     return {
         "hijri": hijri,
-        "phase": phase,
-        "current": current_name,
-        "qaza": qaza,
-        "next_time": next_time,
-        "progress": progress,
+        "eat_state": eat_state,
+        "current": current,
+        "time1": time1,
+        "time2": time2,
+        "percent": percent,
         "message": message
     }
 
